@@ -1,25 +1,12 @@
 (function(window, Ember, $) {
   var RestScroll = {};
-  RestScroll.RouteMixin = Ember.Mixin.create({
-    resource: null,
-    order_by: {
-      id: 'asc'
-    },
-    lastItem: null,
-    loadedItems: null,
-    getItems: function() {
-      var loadedItems = this.get('loadedItems');
-      Ember.Logger.debug('getItems: ', loadedItems);
-      if (loadedItems)
-        return loadedItems;
-      this.set('lastItem', null);
-      return this.loadMore();
-    },
-    loadMore: function() {
-      var res = this.get('resource');
-      var lastItem = this.get('lastItem');
+
+  RestScroll.ArrayProxyMixin = Ember.Mixin.create({
+   loadMore: function() {
+      var res = this.get('resourceName');
+      var lastItem = this.get('lastObject');
       var params = {}
-      params.order_by = this.get('order_by');
+      params.order_by = this.get('orderBy');
       if (lastItem) {
         params.key = {};
         for(field in params.order_by) {
@@ -36,46 +23,76 @@
         params.key['id'] = lastItem.get('id');
       }
       var _this = this;
-      Ember.Logger.debug('loadMore: resource: ', res, 
-        ' lastItem:', this.get('lastItem'),
-        ' params:', params);
+      this.set('loading', true);
+      this.set('error', undefined);
+      // Ember.Logger.debug('APM:loadMore: resource: ', res, 
+      //  ' lastItem:', this.get('lastObject'),
+      //  ' params:', params);
       return this.get('store').find(res, {rest_scroll: params}).then(
         function(items) {
-            var content = items.get('content');
-            Ember.Logger.debug('loadMore: then: ', items, ' content:', content);
-            if (content.length > 0) {
-              var lastItem = content[content.length - 1];
-              _this.set('lastItem', lastItem);
-              Ember.Logger.debug('lastItem: set:', lastItem);
-            }
-            return content;
-        });
+          _this.set('loading', false);
+          var content = items.get('content');
+          // Ember.Logger.debug('loadMore: then: ', items, ' content:', content);
+          if (content.length) {
+            _this.pushObjects(content);
+            _this.set('hasMore', true);
+          }
+          else {
+            _this.set('hasMore', false);
+          }
+          return _this;
+        },
+        function(error) {
+          _this.set('loading', false);
+          _this.set('error', "Error: %@(%@): %@".fmt(error.status, error.statusText, error.responseText));
+          _this.set('hasMore', false);
+        }
+      );
+    },
+    addOrderBy: function(field, asc) {
+      // Ember.Logger.debug('APM: addOrderBy: ', field, asc);
+      var orderBy = this.get('orderBy');
+      orderBy[field] = asc;
+      return this.refreshOrderBy(orderBy);
+    },
+    removeOrderBy: function(field) {
+      // Ember.Logger.debug('APM: removeOrderBy: ', field);
+      var orderBy = this.get('orderBy');
+      delete orderBy[field];
+      return this.refreshOrderBy(orderBy);
+    },
+    refreshOrderBy: function(orderBy) {
+      this.set('orderBy', orderBy);
+      Ember.propertyDidChange(this, 'orderBy');
+      this.set('content', Em.A());
+      return this.loadMore();
+    }
+  });
+
+  RestScroll.RouteMixin = Ember.Mixin.create({
+    resource: undefined,
+    loadedItems: undefined,
+    getItems: function() {
+      
+      var loadedItems = this.get('loadedItems');
+      // Ember.Logger.debug('getItems: ', loadedItems);
+      if (loadedItems)
+        return loadedItems;
+
+      loadedItems = Em.ArrayProxy.createWithMixins(
+        RestScroll.ArrayProxyMixin, {
+        orderBy: {},
+        loading: false, 
+        hasMore: true,
+        resourceName: this.get('resource'),
+        store: this.get('store'),
+        content: Em.A()});
+
+      return loadedItems.loadMore();
     },
     actions: {
-      getMore: function() {
-        Ember.Logger.debug("getMore:", this);
-        var _this = this;
-        this.loadMore().then(
-          function(items) {
-            var c = _this.controllerFor(_this.routeName);
-            c.gotMore(items);
-          });
-      },
-      orderBy: function(field) {
-        Ember.Logger.debug('route: orderBy: ', field);
-        var orderBy = {}
-        orderBy[field] = 'asc';
-        this.set('order_by', orderBy);
-        this.set('lastItem', null);
-        var _this = this;
-        this.loadMore().then(function(items) {
-          Ember.Logger.debug('route:orderBy:then: ', items);
-          var controller = _this.controllerFor(_this.routeName);
-          controller.set('content', items);
-        });
-      },
       willTransition: function(transition) {
-        Ember.Logger.debug("willTransition: ", transition);
+        // Ember.Logger.debug("willTransition: ", transition);
         var controller = this.controllerFor(this.routeName);
         var loadedItems = controller.get('content');
         this.set('loadedItems', loadedItems);
@@ -85,55 +102,88 @@
   });
 
   RestScroll.ControllerMixin = Ember.Mixin.create({
-    loadingMore: false,
-    hasMore: true,
     actions: {
       getMore: function() {
-        Ember.Logger.debug("controller: getMore");
-        if (this.get('loadingMore')) return;
-        this.set('loadingMore', true);
-        this.get('target').send('getMore');
+        // Ember.Logger.debug("controller: getMore");
+        if (this.get('content.loading')) return;
+        this.get('content').loadMore();
       },
-      orderBy: function(field) {
-        Ember.Logger.debug("controller: orderBy: ", field);
-        this.get('target').send('orderBy', field);
-        this.set('hasMore', true);
+      addOrderBy: function(field, asc) {
+        // Ember.Logger.debug("controller: addOrderBy: ", field, asc);
+        this.get('content').addOrderBy(field, asc);
+      },
+      removeOrderBy: function(field) {
+        // Ember.Logger.debug("controller: removeOrderBy: ", field);
+        this.get('content').removeOrderBy(field);
       }
     },
-    gotMore: function(items) {
-        Ember.Logger.debug("controller: gotMore");
-        this.set('loadingMore', false);
-        if (items.length) {
-          this.pushObjects(items);
-          this.set('hasMore', true);
-        }
-        else {
-          this.set('hasMore', false);
-        }
-      }
-    
   });
 
   RestScroll.ToggleSortView = Ember.View.extend({
     layout: Ember.Handlebars.compile(
-      "{{yield}} <a href=\"#\" {{action orderBy target=\"view\"}}><span class=\"glyphicon glyphicon-sort\"></span></a>"),
+      "{{yield}} <a href=\"#\" {{action toggleSort target=\"view\"}}>" +
+      "<span  {{bind-attr class=\":glyphicon view.icon\"}}></span></a>"),
+
+    getAsc: function () {
+      var orderBy = this.get('controller.content.orderBy');
+      var fieldName = this.get('fieldName');
+      var asc = orderBy[fieldName];
+      // Ember.Logger.debug('getAsc: ', orderBy, fieldName, asc);
+      return asc;
+    },
+
+    icon: function() {
+      // Ember.Logger.debug('icon: ', this.get('fieldName'));
+      var asc = this.getAsc();
+      switch(asc) {
+      case undefined: return "glyphicon-sort";
+      case 'asc': return "glyphicon-sort-by-alphabet";
+      case 'desc': return "glyphicon-sort-by-alphabet-alt";
+      }
+    }.property('controller.content.orderBy'),
+
+    /*
+    init: function() {
+      var _this = this;
+      var fieldName = this.get('fieldName');
+      Ember.addObserver(this, "controller.content.orderBy", function() {
+        // Ember.Logger.debug("orderBy observer:", fieldName);
+        Ember.propertyDidChange(_this, "icon");
+      });
+    },
+    */
+
     actions:  {
-      orderBy: function() {
-        Ember.Logger.debug("ToggleSortView: orderBy: ", this.get('fieldName'));
-        var controller = this.get("controller");
-        controller.send('orderBy', this.get('fieldName'));
+      toggleSort: function() {
+        // Ember.Logger.debug("ToggleSortView: toggleSort: ", this.get('fieldName'), ' ascending:', this.get('ascending'));
+        var asc = this.getAsc();
+        var action = 'addOrderBy';
+        switch(asc) {
+        case undefined:
+          asc = 'asc';
+          break;
+        case 'asc':
+          asc = 'desc';
+          break;
+        case 'desc':
+          action = 'removeOrderBy';
+          break;
+        }
+        this.get('controller').send(action, this.get('fieldName'), asc);
       }
     }
   });
 
+  Ember.Handlebars.helper('toggle-sort', RestScroll.ToggleSortView);
+
   RestScroll.LoadMoreView = Ember.View.extend({
     didInsertElement: function() {
       var _controller = this.get('controller');
-      Ember.Logger.debug("LoadMoreView: didInsertElement");
+      // Ember.Logger.debug("LoadMoreView: didInsertElement");
       this.$().bind('inview', 
         function(event, isInView, visibleX, visibleY) {
-          Ember.Logger.debug("inview: ", isInView, ' hasMore:', _controller.get('hasMore'));
-          if (isInView && _controller.get('hasMore')) {
+          // Ember.Logger.debug("inview: ", isInView, ' hasMore:', _controller.get('content.hasMore'));
+          if (isInView && _controller.get('content.hasMore')) {
             _controller.send('getMore');
           }
         });
