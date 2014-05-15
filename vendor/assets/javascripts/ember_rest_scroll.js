@@ -19,8 +19,21 @@
       var res = this.get('resource');
       var lastItem = this.get('lastItem');
       var params = {}
+      params.order_by = this.get('order_by');
       if (lastItem) {
-        params.key = lastItem.get('id');
+        params.key = {};
+        for(field in params.order_by) {
+          var value = lastItem.get(field);
+          switch(Ember.typeOf(value)) {
+          case 'date':
+            params.key[field] = moment(value).toISOString();
+            break;
+          default:
+            params.key[field] = value;
+            break;
+          }
+        }
+        params.key['id'] = lastItem.get('id');
       }
       var _this = this;
       Ember.Logger.debug('loadMore: resource: ', res, 
@@ -48,6 +61,19 @@
             c.gotMore(items);
           });
       },
+      orderBy: function(field) {
+        Ember.Logger.debug('route: orderBy: ', field);
+        var orderBy = {}
+        orderBy[field] = 'asc';
+        this.set('order_by', orderBy);
+        this.set('lastItem', null);
+        var _this = this;
+        this.loadMore().then(function(items) {
+          Ember.Logger.debug('route:orderBy:then: ', items);
+          var controller = _this.controllerFor(_this.routeName);
+          controller.set('content', items);
+        });
+      },
       willTransition: function(transition) {
         Ember.Logger.debug("willTransition: ", transition);
         var controller = this.controllerFor(this.routeName);
@@ -68,18 +94,36 @@
         this.set('loadingMore', true);
         this.get('target').send('getMore');
       },
+      orderBy: function(field) {
+        Ember.Logger.debug("controller: orderBy: ", field);
+        this.get('target').send('orderBy', field);
+        this.set('hasMore', true);
+      }
     },
     gotMore: function(items) {
         Ember.Logger.debug("controller: gotMore");
         this.set('loadingMore', false);
         if (items.length) {
           this.pushObjects(items);
+          this.set('hasMore', true);
         }
         else {
           this.set('hasMore', false);
         }
       }
     
+  });
+
+  RestScroll.ToggleSortView = Ember.View.extend({
+    layout: Ember.Handlebars.compile(
+      "{{yield}} <a href=\"#\" {{action orderBy target=\"view\"}}><span class=\"glyphicon glyphicon-sort\"></span></a>"),
+    actions:  {
+      orderBy: function() {
+        Ember.Logger.debug("ToggleSortView: orderBy: ", this.get('fieldName'));
+        var controller = this.get("controller");
+        controller.send('orderBy', this.get('fieldName'));
+      }
+    }
   });
 
   RestScroll.LoadMoreView = Ember.View.extend({
