@@ -142,17 +142,6 @@
       }
     }.property('controller.content.orderBy'),
 
-    /*
-    init: function() {
-      var _this = this;
-      var fieldName = this.get('fieldName');
-      Ember.addObserver(this, "controller.content.orderBy", function() {
-        // Ember.Logger.debug("orderBy observer:", fieldName);
-        Ember.propertyDidChange(_this, "icon");
-      });
-    },
-    */
-
     actions:  {
       toggleSort: function() {
         // Ember.Logger.debug("ToggleSortView: toggleSort: ", this.get('fieldName'), ' ascending:', this.get('ascending'));
