@@ -7,13 +7,14 @@
       var lastItem = this.get('lastObject');
       var params = {}
       params.order_by = this.get('orderBy');
+      params.filters = this.get('filters');
       if (lastItem) {
         params.key = {};
         for(field in params.order_by) {
           var value = lastItem.get(field);
           switch(Ember.typeOf(value)) {
           case 'date':
-            params.key[field] = moment(value).toISOString();
+            params.key[field] = moment(value).toJSON();
             break;
           default:
             params.key[field] = value;
@@ -66,7 +67,26 @@
       Ember.propertyDidChange(this, 'orderBy');
       this.set('content', Em.A());
       return this.loadMore();
+    },
+    addFilter: function(field, value) {
+      var filters = this.get('filters');
+      var newFilter = {}
+      newFilter[field] = value;
+      filters.push(newFilter);
+      this.refreshFilters(filters);
+    },
+    removeFilter: function(index) {
+      var filters = this.get('filters');
+      filters.splice(index, 1);
+      this.refreshFilters(filters);
+    },
+    refreshFilters: function(filters) {
+      this.set('filters', filters);
+      Ember.propertyDidChange(this, 'filters');
+      this.set('content', Em.A());
+      return this.loadMore();
     }
+
   });
 
   RestScroll.RouteMixin = Ember.Mixin.create({
@@ -82,6 +102,7 @@
       loadedItems = Em.ArrayProxy.createWithMixins(
         RestScroll.ArrayProxyMixin, {
         orderBy: {},
+        filters: [],
         loading: false, 
         hasMore: true,
         resourceName: this.get('resource'),
@@ -115,14 +136,25 @@
       removeOrderBy: function(field) {
         // Ember.Logger.debug("controller: removeOrderBy: ", field);
         this.get('content').removeOrderBy(field);
+      },
+      addFilter: function(fieldName, value) {
+        this.get('content').addFilter(fieldName, value);
+      },
+      removeFilter: function(index) {
+        this.get('content').removeFilter(index);
       }
     },
   });
 
   RestScroll.ToggleSortView = Ember.View.extend({
     layout: Ember.Handlebars.compile(
-      "{{yield}} <a href=\"#\" {{action toggleSort target=\"view\"}}>" +
-      "<span  {{bind-attr class=\":glyphicon view.icon\"}}></span></a>"),
+      "{{yield}} \
+      {{#if view.canFilter}} \
+        {{scroll-filter class=\"pull-rigth\" tagName=\"span\" fieldName=view.fieldName}} \
+      {{/if}} \
+      <a href=\"#\" {{action toggleSort target=\"view\" class=\"pull-right\"}}> \
+        <span  {{bind-attr class=\":glyphicon view.icon\"}}></span> \
+      </a>"),
 
     getAsc: function () {
       var orderBy = this.get('controller.content.orderBy');
@@ -137,8 +169,8 @@
       var asc = this.getAsc();
       switch(asc) {
       case undefined: return "glyphicon-sort";
-      case 'asc': return "glyphicon-sort-by-alphabet";
-      case 'desc': return "glyphicon-sort-by-alphabet-alt";
+      case 'asc': return "glyphicon-sort-by-attributes";
+      case 'desc': return "glyphicon-sort-by-attributes-alt";
       }
     }.property('controller.content.orderBy'),
 
@@ -164,6 +196,82 @@
   });
 
   Ember.Handlebars.helper('toggle-sort', RestScroll.ToggleSortView);
+
+  Handlebars.registerHelper("debug", function(optionalValue) {
+    Ember.Logger.debug(this, optionalValue, this.get(optionalValue));
+  });
+
+  RestScroll.FilterItemView = Ember.View.extend({
+    tagName: 'span',
+    classNames: ['label', 'label-default'],
+    template: Ember.Handlebars.compile(
+        "{{view.content.filterText}} \
+          <a href=\"#\" {{action removeFilter target=\"view\"}}> \
+            <span class=\"glyphicon glyphicon-remove\"></span> \
+          </a>"),
+    actions: {
+      removeFilter: function() {
+        this.get('controller').send('removeFilter', this.get('content.filterIndex'));
+      }
+    }
+  });
+
+  RestScroll.FiltersCollectionView = Ember.CollectionView.extend({
+ //   tagName: 'ul',
+    itemViewClass: 'RestScroll.FilterItemView',
+  });
+
+  RestScroll.ScrollFilterView = Ember.View.extend({
+
+    showFilter: false,
+
+    fieldFilters: function() {
+      var fieldName = this.get('fieldName');
+      // Ember.Logger.debug('fieldFilters:', fieldName);
+      var filters = this.get('controller.content.filters');
+      var fieldFilters = [];
+      var index;
+      for(index = 0; index < filters.length; ++index) {
+        item = filters[index];
+        if (item[fieldName]) {
+          fieldFilters.push(Ember.Object.create({
+            filterIndex: index,
+            filterText: item[fieldName]
+          }));
+        }
+      }
+      return fieldFilters;
+    }.property('controller.content.filters').cacheable(),
+
+    template: Ember.Handlebars.compile(
+      "{{#if view.showFilter}} \
+         {{input action=\"addFilter\" targetObject=view placeholder=\"Add filter\"}} \
+         <a href=\"#\" {{action cancelFilter target=\"view\"}}> \
+           <span class=\"glyphicon glyphicon-remove\"></span> \
+         </a> \
+       {{else}} \
+         <a href=\"#\" {{action showFilter target=\"view\"}}> \
+           <span class=\"glyphicon glyphicon-filter\"></span> \
+         </a> \
+       {{/if}} \
+       {{view RestScroll.FiltersCollectionView contentBinding=\"view.fieldFilters\"}} \
+       "),
+    actions: {
+      showFilter: function() {
+        this.set('showFilter', true);
+      },
+      addFilter: function(value) {
+        //Ember.Logger.debug("addFilter: ", this.get('fieldName'), "value: ", value);
+        this.get('controller').send('addFilter', this.get('fieldName'), value);
+        this.set('showFilter', false);
+      },
+      cancelFilter: function() {
+        this.set('showFilter', false);
+      }
+    }
+  });
+
+  Ember.Handlebars.helper('scroll-filter', RestScroll.ScrollFilterView);
 
   RestScroll.LoadMoreView = Ember.View.extend({
     didInsertElement: function() {
