@@ -1,0 +1,13 @@
+{{#if showFilter}} 
+   {{input action='addFilter'  placeholder="Add filter"}} 
+   <a href="#" {{action 'cancelFilter' }}> 
+     <span class="glyphicon glyphicon-remove"></span> 
+   </a> 
+ {{else}} 
+   <a href="#" {{action 'showFilter' }}> 
+     <span class="glyphicon glyphicon-filter"></span> 
+   </a> 
+ {{/if}} 
+ {{#each fieldFilters as |item|}}
+   {{rest-scroll-filter-item target=target item=item}} 
+ {{/each}}

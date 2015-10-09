@@ -32,58 +32,32 @@ module RestScroll
   DATE_SYNTAX = {
      /^(\s+)?((?<not>NOT)(\s+)?)?(?<value>(?<year>\d\d\d\d)[\/\\\-]?(?<month>\d\d)?[\/\\\-]?(?<day>\d\d)?([T\s](?<hour>\d?\d)(\:(?<min>\d\d)(:(?<sec>\d\d))?)?)?)/i =>
        lambda {|model, field, match|
-         from, to = RestScroll.parse_datetime(match)
+         from = RestScroll.parse_datetime(match)
+         to = nil
+         if match[:month].nil?
+           to = from + 1.year
+         elsif match[:day].nil?
+           to = from + 1.month
+         elsif match[:hour].nil?
+           to = from + 1.day
+         elsif match[:min].nil?
+           to = from + 1.hour
+         elsif match[:sec].nil?
+           to = from + 1.minute
+         else
+           to = from + 1.second
+         end
          model.where("#{match[:not]} #{field} BETWEEN ? AND ?", from, to)},
-  
+
      /^(\s+)?(?<op>\<|\>|=|\<=|\>=|\<\>)(\s+)?(?<value>(?<year>\d\d\d\d)[\/\\\-]?(?<month>\d\d)?[\/\\\-]?(?<day>\d\d)?([T\s](?<hour>\d?\d)(\:(?<min>\d\d)(:(?<sec>\d\d))?)?)?)/i =>
        lambda {|model, field, match|
-         value,ignored = RestScroll.parse_datetime(match)
+         value = RestScroll.parse_datetime(match)
          model.where("#{field} #{match[:op]} ?", value)},
     }
 
   def self.parse_datetime(match)
-   to = nil
-   from = nil
-   if match[:month].nil?
-     from = Time.gm(match[:year].to_i)
-     to = from + 1.year
-   elsif match[:day].nil?
-     from = Time.gm(
-        match[:year].to_i, 
-        match[:month].to_i)
-     to = from + 1.month
-   elsif match[:hour].nil?
-     from = Time.gm(
-        match[:year].to_i,
-        match[:month].to_i,
-        match[:day].to_i)
-     to = from + 1.day
-   elsif match[:min].nil?
-     from = Time.gm(
-        match[:year].to_i,
-        match[:month].to_i,
-        match[:day].to_i,
-        match[:hour].to_i)
-     to = from + 1.hour
-   elsif match[:sec].nil?
-     from = Time.gm(
-        match[:year].to_i,
-        match[:month].to_i,
-        match[:day].to_i,
-        match[:hour].to_i,
-        match[:min].to_i)
-     to = from + 1.minute
-   else
-     from = Time.gm(
-        match[:year].to_i,
-        match[:month].to_i,
-        match[:day].to_i,
-        match[:hour].to_i,
-        match[:min].to_i,
-        match[:sec].to_i)
-     to = from + 1.second
-   end
-  return from, to
+    Time.gm(match[:year], match[:month], match[:day],
+      match[:hour], match[:min], match[:sec])
   end
 
   def self.build_scope(klass, model, params)

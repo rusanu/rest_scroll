@@ -1,0 +1,7 @@
+<a href="#" {{action 'toggleSort'}}>
+  <span  {{bind-attr class=":glyphicon icon"}}></span> 
+</a> 
+{{yield}} 
+{{#if canFilter}} 
+  {{rest-scroll-filter target=target tagName="span" fieldName=fieldName}} 
+{{/if}}
